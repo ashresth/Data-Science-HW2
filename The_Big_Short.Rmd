@@ -1,0 +1,541 @@
+---
+title: "Homework 2: The Big Short"
+output: html_document
+---
+ 
+**This homework is due Sunday February 28, 2016 at 11:59 PM. When complete, submit your code in the R Markdown file and the knitted HTML via GitHub.**
+
+# Background 
+
+This homework is motivated by circumstances surrounding the [financial crisis of 2007-2008](https://en.wikipedia.org/wiki/Financial_crisis_of_2007%E2%80%9308). We titled the homework _The Big Short_, after the book on the same topic that was also recently made into a movie.
+
+Part of what caused the financial crisis was that the risk of certain [securities](https://en.wikipedia.org/wiki/Security_(finance)) sold by financial institutions were  underestimated. Specifically, 
+the risk of mortgage-backed securities (MBS) and collateralized debt obligations (CDO), the price of which depends on homeowners making their monthly payments, was grossly underestimated. A combination of factors resulted in many more defaults than were expected. This resulted in a crash of the prices of these securities. As a consequence, banks lost so much money that they needed bailouts to avoid default.
+
+Here we present a **very** simplified version of what happened with some of these securities. Hopefully it will help you understand how a wrong assumption about the statistical behavior of events can lead to substantial differences between what the model predicts and what actually happens. Specifically, we will see how using an independence assumption can result in misleading conclusions. Before we start with the specific application we ask you about a simple casino game.
+
+# Problem 1
+
+In the game of [roullete](https://en.wikipedia.org/wiki/Roulette)
+you can bet on several things including black or red. On this bet, if you win, you double your earnings. How does the casino make money on this then? If you look at the [possibilities](http://www.math.uah.edu/stat/games/Roulette.png)
+you realize that the chance of red or black are both slightly less than 1/2. There are two green spots, so the of landing on black (or red) is actually 18/38, or 9/19.
+
+
+## Problem 1A
+
+Let's make a quick sampling model for this simple version of roulette. You are going to bet a dollar each time you play and always bet on black. Make a box model for this process using the `sample` function. Write a function `get_outcome` that takes as an argument the number of times you play $N$ and returns your earnings $S_N$.
+
+```{r}
+get_outcome <- function(N){
+  X <- sample( c(-1,1), N, replace = TRUE, prob=c(10/19, 9/19))
+  S_N <- sum(X)
+  return(S_N)
+}
+```
+
+## Problem 1B
+
+Use Monte Carlo simulation to study the distribution of total earnings $S_N$ for $N=10,25,100,1000$. That is, study the distribution of earnings for different number of plays. What are the distributions of these two random variables? How do the expected values and standard errors change with $N$? Then do the same thing for the average winnings $S_N/N$. What result that you learned in class predicts this?
+
+```{r}
+B= 10^5
+n = c(10,25,100,1000)
+do_sim <- function(n){
+  wins<-replicate(B, get_outcome(n))
+  hist(wins, breaks=20, col = "blue", main = n, xlab = "Total Wins")
+  exp_val <- mean(wins)
+  se <- sqrt(mean((wins-exp_val)^2))
+  return(c(exp_val, se))
+}
+par(mfrow=c(2,2))
+sims<- sapply(n, do_sim)
+rownames(sims) <- c("Expected Value", "Standard Error")
+colnames(sims) <- c("n= 10", "n = 25", "n = 100", "n = 1000")
+title("Distributions of total earning by varying n", outer = TRUE, line=-1)
+sims
+
+do_sim_avg <- function(n){
+  wins<-replicate(B, get_outcome(n)/n)
+  hist(wins, breaks=20, col = "blue", main = n, xlab="Average Wins")
+  exp_val <- mean(wins)
+  se <- sqrt(mean((wins-exp_val)^2))
+  return(c(exp_val, se))
+}
+par(mfrow=c(2,2))
+sims_avg<- sapply(n, do_sim_avg)
+rownames(sims_avg) <- c("Expected Value", "Standard Error")
+colnames(sims_avg) <- c("n= 10", "n = 25", "n = 100", "n = 1000")
+title("Distributions by average earning by varying n", outer = TRUE, line = -1)
+sims_avg
+```
+
+The two random variables are approximately normally distributed. The approximation works better at larger values of $N$ i.e when the sample size gets bigger.
+For the total earnings, the expected values get smaller (larger negative numbers) and the standard errors get larger as $N$ increases.
+For the average earnings, the expected values stays approximately constant for all values of $N$ and the standard errors get smaller as $N$ increases. This result is predicted by the _Law of Large Numbers_ which says that the bigger $N$ the closer the sample average gets to the mean of our sampling model.
+
+## Problem 1C
+
+What is the expected value of our sampling model? What is the standard deviation of our sampling model?
+
+The expected value is the average
+
+$$\mu = {E}(S/N) = \frac{1}{n}\sum_{i=1}^n x_i$$
+
+which is 
+
+$$ \frac{1}{19} (-10+9) = \frac{-1}{19} = -0.052 $$
+
+The SD is 
+
+$$ \sigma = \sqrt{ \frac{1}{n} \sum_i^n (x_i - \mu)^2} $$
+
+In case of binomial proportions $p$ and $1-p$, this reduces to $\mid b - a \mid \sqrt{p(1-p)}$ where $a$ and $b$ are the values of proportions $p$ and $(1-p)$ respectively.
+
+```{r}
+mu<-(-1/19)
+#The mean is
+mu
+sigma <-2*sqrt(10/19*9/19)
+#The SD is
+sigma
+```
+
+We can also calculate the SD from our data since
+
+$$ {SE}(S/N) = \frac{\sigma}{\sqrt{N}} $$
+
+```{r}
+##Using the N= 1000 case
+sample_sd = sims_avg[2,4]*sqrt(1000) 
+sample_sd
+#They are approximately equal
+```
+
+
+## Problem 1D
+
+Use CLT to approximate the probability that the casino loses money when you play 25 times. Then use a Monte Carlo simulation to confirm.
+
+```{r}
+##The mean of the distribution is -1/19 and standard error is sigma/sqrt(25). For the casino to lose money, the average winnings needs to be at least 0. Thus the probability that the casino loses money is:
+1- pnorm(0, mean=-1/19, sd = sigma/sqrt(25))
+# MC Simulation
+winnings <- replicate(B, { 
+                      X <- sample(c(-1,1), 25, replace = TRUE, prob=c(10/19, 9/19))
+                      mean(X)
+                      })
+#Casino loses money if the average winning in 25 bets is greater than 0
+prob_lose <- sum(winnings>0)/B
+#Thus the probablity that the casino loses money is:
+prob_lose
+```
+
+
+
+## Problem 1E
+
+In general, what is the probability that the casino loses money as a function of $N$? Make a plot for values ranging from 25 to 1,000. Why does the casino give you free drinks if you keep playing?
+
+```{r}
+library(ggplot2)
+N<-seq(25,1000,25)
+# Make a function that takes N as an argument and returns the probablity of loss for the casino
+lose_func <- function(N){
+  1- pnorm(0, mean=-1/19, sd = sigma/sqrt(N))
+}
+# Apply function to the sequence of N's
+prob_lose_func <- sapply(N, lose_func)
+prob_lose_func <- as.data.frame(prob_lose_func)
+par(mfrow=c(1,1))
+ggplot(prob_lose_func, aes(x = N, y = prob_lose_func)) +
+  geom_line() +
+  ggtitle("Probability of Casino Losing Money as a function of N")+ 
+  xlab("N") +
+  ylab("Probability of Money Loss")
+```
+
+As $N$ increases, the probability of loss goes down for the casino. So the casino gives free drinks to encourage you to play more so that their chances of losing money on the bet becomes lower. 
+
+# Problem 2 
+
+You run a bank that has a history of identifying potential homeowners that can be trusted to make payments. In fact, historically, in a given year, only 2% of your customers default. You want to use stochastic models to get an idea of what interest rates you should charge to guarantee a profit this upcoming year. 
+
+## Problem 2A
+
+Your bank gives out 1,000 loans this year. Create a sampling model and use the function `sample` to simulate the number of foreclosure in a year with the information that 2% of customers default. Also suppose your bank loses $120,000 on each foreclosure. Run the simulation for one year and report your loss.
+
+```{r}
+p = 0.02
+num_loans = 1000
+loss_per_foreclosure = 120000
+## Sample each of the 1000 loans with probability p that it will be foreclosed (and 1-p that it won't)
+num_fore <- sum(sample(c(1,0), num_loans, replace = TRUE, prob=c(p, 1-p)))
+## The number of foreclosures is
+num_fore
+## Multiply by loss per foreclosure
+loss = num_fore * loss_per_foreclosure
+## The total loss due to the foreclosures is
+loss
+```
+
+## Problem 2B
+
+Note that the loss you will incur is a random variable. Use Monte Carlo simulation to estimate the distribution of this random variable. Use summaries and visualization to describe your potential losses to your board of trustees.
+
+```{r}
+B <- 10^5
+loss <- replicate(B, {
+                  X <-sample( c(-(loss_per_foreclosure),0), num_loans, replace = TRUE, prob=c(p, 1-p))
+                  sum(X)})
+cat("The expected value of the loss is", mean(loss), "and the standard error is", sd(loss))
+hist(loss, main = "Distribution of Loss", xlab = "Total Loss (dollars)", 
+     breaks= 40, ylim=c(0,10000), col="blue")
+qqnorm(loss)
+qqline(loss)
+print("The total loss is approximately normally distributed but deviates from normality towards the tails.")
+```
+
+## Problem 2C
+
+The 1,000 loans you gave out were for $180,000. The way your bank can give out loans and not lose money is by charging an interest rate. If you charge an interest rate of, say, 2% you would earn $3,600 for each loan that doesn't foreclose. At what percentage should you set the interest rate so that your expected profit totals $100,000. Hint: Create a sampling model with expected value 100 so that when multiplied by the 1,000 loans you get an expectation of $100,000. Corroborate your answer with a Monte Carlo simulation.
+
+Your solution here. 
+
+We want an expected value or average of 100. If $ir$ is the interest rate,
+$$ (0.98)(ir)(180000)+(0.02)(-120000)=100 $$
+
+```{r}
+#Calculate new IR
+loan = 180000
+ir = (100 + loss_per_foreclosure*p)/((1-p)*loan)
+ir
+#MC simulation to check that expected value of profit per loan is 100.
+avg_earnings<- replicate(B, {
+  X<-sample( c(-(loss_per_foreclosure),ir*loan), num_loans, replace = TRUE, prob=c(p, 1-p))
+  mean(X)})
+mean(avg_earnings)
+hist(avg_earnings, breaks = 100, col="blue", ylim = c(0,10000), xlab="Average earning per loan",
+     main = "Histogram of Average Earnings")
+```
+
+
+## Problem 2D
+
+In problem 2C, you were able to set a very low interest rate. Your customers will be very happy and you are expected to earn $100,000 in profits. However, that is just an expectation. Our profit is a random variable. If instead of a profit your bank loses money, your bank defaults. Under the conditions of Problem 2C, what is the probability that your profit is less than 0?
+
+```{r}
+##the mean of the distribution is
+mu = (1-p)*ir*loan + p*(-(loss_per_foreclosure))
+mu
+## and the standard deviation
+sigma = ((ir*loan)-(-(loss_per_foreclosure)))*sqrt((1-p)*p)
+sigma
+
+##for the bank to default, the profits have to be at most 0. Given our distribution as described above, the probability for the bank to default is:
+pnorm(0, mean=mu, sd = sigma/sqrt(num_loans))
+#Simulation using profits from previous question
+prob_def <- sum(avg_earnings<0)/B
+prob_def
+
+#Theoretical and simulation results are close
+```
+
+## Problem 2E
+
+Note that the probability of losing money is quite high. To what value would you have to raise interest rates in order to make the probability of losing money, and your bank and your job, as low as 0.001? What is the expected profit with this interest rate? Corroborate your answer with a Monte Carlo simulation.
+
+Hint: Use the following short cut. If $p$ fraction of a box are $a$s and $(1-p)$ are $b$s, then the SD of the list is $\mid a-b \mid \sqrt{p(1-p)}$ 
+
+##### Solution
+
+Assume that the profits are approximately normally distributed.
+
+Let $S$ be the total earning.
+
+$$ Z = \sqrt{N} \frac{S/N - \mu}{\sigma}$$ 
+
+is standard normal. We want 
+
+$$\mbox{Pr(S/N < 0)} = 10^{-3} $$
+
+Then,
+
+$$\mbox{Pr}(\sqrt{N} \frac{S/N - \mu}{\sigma} < -\sqrt{N}\frac{\mu}{\sigma}) = 10^{-3} $$
+
+i.e.
+
+$$\mbox{Pr}(Z < -\sqrt{N}\frac{\mu}{\sigma}) = 10^{-3} $$
+
+If we set $z = \Phi^{-1}(10^{-3})$ then 
+
+$$\mbox{Pr}(Z < z) = 10^{-3}$$
+
+So we need 
+
+$$-\sqrt{N}\frac{\mu}{\sigma} = \Phi^{-1}(10^{-3})$$
+
+or
+
+$$ \frac {0.98 \times ir \times 180000 + 0.02 \times (-120000)} {(ir \times 180000-(-120000)) \sqrt{(0.98 \times 0.02)}} = -\Phi^{-1}(10^{-3}) / \sqrt{N} $$
+
+$$ ir = \frac {(-\Phi^{-1}(10^{-3}) / \sqrt{N}) \times \sqrt{0.98 \times 0.02} \times 120000 + 120000 \times 0.02}{(-\Phi^{-1}(10^{-3}) / \sqrt{N}) \times \sqrt{0.98 \times 0.02} \times 180000 + 180000 \times 0.98}$$
+
+```{r}
+#Let new_ir be the new interest rate
+new_ir = ((-qnorm(10^-3)/sqrt(num_loans))*loss_per_foreclosure*sqrt(p*(1-p)) + loss_per_foreclosure*p)/
+  ((qnorm(10^-3)/sqrt(num_loans))*loan*sqrt(p*(1-p))+(1-p)*loan)
+new_ir
+#Then the new expected profit is the new mean of the distribution
+new_mu = (1-p)*new_ir*loan + p*(-(loss_per_foreclosure))
+new_mu
+## and the standard deviation is
+new_sigma = ((new_ir*loan)-(-(loss_per_foreclosure)))*sqrt((1-p)*p)
+new_sigma
+#Given this distribution the probability of default is 
+pnorm(0, mean=new_mu, sd = new_sigma/sqrt(num_loans))
+# MC simulation given this distribution
+new_avg_earnings<- replicate(B, {
+  X <-sample( c(-(loss_per_foreclosure),new_ir*loan), num_loans, replace = TRUE, prob=c(p, 1-p))
+  mean(X)})
+new_prob_def <- sum(new_avg_earnings<0)/B
+#From the simulation, the probability of default is
+new_prob_def
+hist(new_avg_earnings, breaks = 100, col="blue", ylim = c(0,10000), xlab="Average earning per loan")
+qqnorm((new_avg_earnings-new_mu)*sqrt(num_loans)/new_sigma)
+abline(0,1, col="red")
+```
+
+We can see here that the normal approximation does not hold up very well.
+
+## Problem 2F
+
+Note that the Monte Carlo simulation gave a slightly higher probability than 0.001. What is a possible reason for this? 
+Hint: See if the disparity is smaller for larger values of $p$. Also check for probabilities larger than 0.001. Recall we made an assumption when we calculated the interest rate.
+
+
+##### Disparities by varying default rates (p)
+
+```{r}
+default_p <- function(p){
+  ir = ((-qnorm(10^-3)/sqrt(num_loans))*loss_per_foreclosure*sqrt(p*(1-p)) + loss_per_foreclosure*p)/
+  ((qnorm(10^-3)/sqrt(num_loans))*loan*sqrt(p*(1-p))+(1-p)*loan)
+  #simulation
+  avg_earnings<- replicate(100000, {
+    X<-sample( c(-(loss_per_foreclosure),ir*loan), num_loans, replace = TRUE, prob=c(p, 1-p))
+    mean(X)})
+  prob_def <- sum(avg_earnings<0)/100000
+  return(prob_def)
+}
+ps <- seq(0.01, 0.5, len=10)
+def_by_p <- sapply(ps, default_p)
+plot(ps, def_by_p, main = " Simulation Results for Probability of Default by Varying p", 
+     xlab = "p", ylab = "Probablity of Default", cex.main = 0.9)
+abline(h =0.001)
+```
+
+The disparity is smaller for larger values of p. We assumed that our distribution of earnings was normally distributed when we calculated our interest rate. The normal approximation to a binomial distribution works best when p = 0.5. Since our p is much smaller than 0.5, the sample distribution deviates from normality and we can see that the disparity is quite large. As p gets closer to 0.5, the normal approximation works better.
+
+##### Disparities by varying probability of loss (prob)
+
+```{r}
+disparity_prob <- function(prob){
+  p= 0.02 #set p to original
+  #change IR as per the desired probability of loss
+  ir <- ((-qnorm(prob)/sqrt(num_loans))*loss_per_foreclosure*sqrt(p*(1-p)) + loss_per_foreclosure*p)/
+  ((qnorm(prob)/sqrt(num_loans))*loan*sqrt(p*(1-p))+(1-p)*loan)
+  # MC simulation
+  avg_earnings<- replicate(B, {
+    X<-sample( c(-(loss_per_foreclosure),ir*loan), num_loans, replace = TRUE, prob=c(p, 1-p))
+    mean(X)})
+  prob_def_sim <- sum(avg_earnings<0)/B
+  return(c(prob_def_sim, prob, prob_def_sim-prob))
+}
+probs <- c(0.001, 0.01, 0.03, 0.05, 0.08, 0.1, 0.2, 0.5, 0.8, 0.9, 0.95, 0.97, 0.99, 0.999)
+disp_by_prob <- sapply(probs, disparity_prob)
+rownames(disp_by_prob)<- c("Simulation", "Theory", "Disparity")
+colnames(disp_by_prob)<- probs
+plot(probs, disp_by_prob[3,], 
+     main = "Disparities in probability of default by varying desired probability of default", 
+     xlab = "p", ylab = "Disparity between simulation and theory", cex.main = 0.8)
+abline(h = 0)
+disp_by_prob
+```
+
+As the desired probability of loss gets larger, the disparity gets larger as well. The disparity is least when the desired probability of loss is close to 0 or 1.
+
+## Problem 3
+
+We were able to set an interest rate of about 2% that guaranteed a very low probability of having a loss. Furthermore, the expected average was over $1 million. Now other financial companies noticed the success of our business. They also noted that if we increase the number of loans we give, our profits increase. However, the pool of reliable borrowers was limited. So these other companies decided to give loans to less reliable borrowers but at a higher rate.
+
+## Problem 3A
+
+The pool of borrowers they found had a much higher default rate, estimated to be $p=0.05$. What interest rate would give these companies the same expected profit as your bank (Answer to 2E)? 
+
+We want
+$$ (0.95)(x)(180000)+(0.05)(-120000)=1698.947 $$
+
+```{r}
+p2 <- 0.05
+hi_ir = (new_mu + loss_per_foreclosure*p2)/((1-p2)*loan)
+#The new IR is
+hi_ir
+```
+
+## Problem 3B 
+
+At the interest rate calculated in 3A what is the probability of negative profits? Use both the normal approximation and then confirm with a Monte Carlo simulation.
+
+```{r}
+##the mean of the distribution is 
+hi_mu = (1-p2)*hi_ir*loan + p2*(-(loss_per_foreclosure))
+hi_mu
+## and the standard deviation
+hi_sigma = (hi_ir*loan-(-(loss_per_foreclosure)))*sqrt(p2*(1-p2))
+hi_sigma
+
+##for the bank to default, the profits have to be at most 0. Given our distribution as described above, the probability for the bank to default is:
+pnorm(0, mean=hi_mu, sd = hi_sigma/sqrt(num_loans))
+#Simulation
+hi_avg_earnings<- replicate(B, {
+  X <- sample( c(-(loss_per_foreclosure),hi_ir*loan), num_loans, replace = TRUE, prob=c(p2, 1-p2))
+  mean(X)})
+##Probability of default as per the simulation is
+hi_prob_def <- sum(hi_avg_earnings<0)/B
+hi_prob_def
+```
+
+## Problem 3C 
+
+Note that the probability is much higher now. This is because the standard deviation grew. The companies giving out the loans did not want to raise interest rates much more since it would drive away clients. Instead they used a statistical approach. They increased $N$. How large does $N$ need to be for this probability to be 0.001? Use the central limit approximation and then confirm with a Monte Carlo simulation.
+
+Your answer here.
+
+If we set $z = \Phi^{-1}(10^{-3})$ then 
+
+$$\mbox{Pr}(Z < z) = 10^{-3}$$
+
+So we need 
+
+$$-\sqrt{N}\frac{\mu}{\sigma} = \Phi^{-1}(10^{-3})$$
+i.e.
+$$ N = (-\Phi^{-1}(10^{-3}) \sigma / \mu)^2$$
+
+```{r}
+hi_num_loans <- ceiling(-qnorm(10^-3)*hi_sigma/hi_mu )^2
+#The new number of loans is
+hi_num_loans
+#Confirm that probability is less thanor equal to 0.001 by normal approximation
+pnorm(0, mean=hi_mu, sd = hi_sigma/sqrt(hi_num_loans))
+#MC Simulation
+hi_num_avg_earnings<- replicate(B, {
+  X <- sample( c(-(loss_per_foreclosure),hi_ir*loan), hi_num_loans, replace = TRUE, prob=c(p2, 1-p2))
+  mean(X)})
+#Probability of default as per simulation result is
+hi_num_prob_def <- sum(hi_num_avg_earnings<0)/B
+hi_num_prob_def
+
+```
+
+So by doubling the number of loans we were able to reduce our risk! Now, for this to work, all the assumptions in our model need to be approximately correct, including the assumption that the probability of default was **independent**. This turned out to be false and the main reason for the under estimation of risk.
+
+
+## Problem 3D
+
+Define the following matrix of outcomes for two borrowers using our previous box model:
+
+```{r}
+loan <- 180000
+loss_per_foreclosure <- 120000
+p2 <- 0.05
+interest_rate2 <- 0.05
+B <- 10^5
+outcomes1 <- replicate(B,{
+  sample( c(-loss_per_foreclosure, interest_rate2*loan ), 2, replace=TRUE, prob=c(p2, 1-p2))
+})
+```
+We can confirm independence by computing the probability of default for the second conditioned on the first defaulting: 
+
+```{r}
+sum( outcomes1[1,] < 0 & outcomes1[2,]<0)/sum(outcomes1[1,]<0)
+```
+
+This quantity is about the same as the probability of default $0.05$.
+
+Now we create a new model. Before generating each set of defaults, we assume that a random event occurred that makes all default probabilities go up or go down by 4 points. We could see how this would happen if, for example, demand for houses decreases and all house prices drop. 
+
+```{r}
+B <- 10^5
+outcomes2 <- replicate(B,{
+  add <- sample( c(-0.04,0.04), 1)
+  sample( c(-loss_per_foreclosure, interest_rate2*loan ), 2, replace=TRUE, prob=c(p2+add, 1-(p2+add)))
+})
+```
+
+Note that the outcomes are no longer independent as demonstrated by this result not being equal to 0.05
+
+```{r}
+sum( outcomes2[1,] < 0 & outcomes2[2,]<0)/sum(outcomes2[1,]<0)
+```
+
+
+Generate a simulation with correlated outcomes such as those above. This time use the interest rate calculated in 3A. What is the expected earnings under this model compared to the previous? What is the probability of losing $1 million compared to the previous? What is the probability of losing $10 million compared to the previous?
+
+```{r}
+loan <- 180000
+loss_per_foreclosure <- 120000
+p2 <- 0.05
+##IR from 3A
+hi_ir
+B <- 10^5
+N <- hi_num_loans
+```
+
+##### Scenario 1: No random event affecting the default rates
+
+```{r}
+avg_earnings3 <- replicate(B,{
+  X <- sample( c(-loss_per_foreclosure, hi_ir*loan ), N, replace=TRUE, prob=c(p2, 1-p2))
+  mean(X)
+})
+total_earnings3<-mean(avg_earnings3)*N
+#The expected total earning is:
+total_earnings3
+#Multiply average earning by N and get probability that total loss is greater than $1 million (earning<$1million)
+lose1_3 <- sum(avg_earnings3*N<(-1000000))/B
+#Probability of losing $1 million is
+lose1_3
+#Multiply average earning by N and get probability that total loss is greater than $10 million (earning<$10 million)
+lose10_3 <- sum(avg_earnings3*N<(-10000000))/B
+#Probability of losing $10 million is
+lose10_3
+```
+
+##### Scenario 2: Random event makes default rates go up or down by 0.04
+
+```{r}
+avg_earnings4 <- replicate(B,{
+  add <- sample( c(-0.04,0.04), 1)
+  X <-sample( c(-loss_per_foreclosure, hi_ir*loan ), N, replace=TRUE, prob=c(p2+add, 1-(p2+add)))
+  mean(X)
+})
+total_earnings4<-mean(avg_earnings4)*N
+#The expected total earning is:
+total_earnings4
+#Multiply average earning by N and get probability that total loss is greater than $1 million (earning<$1million)
+lose1_4 <- sum(avg_earnings4*N<(-1000000))/B
+#Probability of losing $1 million is
+lose1_4
+#Multiply average earning by N and get probability that total loss is greater than $10 million (earning<$10million)
+lose10_4 <- sum(avg_earnings4*N<(-10000000))/B
+#Probability of losing $10 million is
+lose10_4
+```
+
+While expected total earning does not change much between the two scenarios, the probability of losing $1 million increases from ~0 to 0.50 and that of losing $10 million increases from 0 to 0.14.
+
+## Problem 4
+
+Read [this wikipedia page](https://en.wikipedia.org/wiki/Financial_crisis_of_2007%E2%80%9308) about the financial crisis. Write a paragraph describing how what you learned in this homework can help explain the conditions that led to the crisis.
+
+##### Answer
+The financial crisis was triggered by the bursting of the housing bubble. This led the worth of houses to go below the mortage loan and incentivized borrowers to default. Since the falling of the prices affected everyone, the probability of foreclosure went up for all borrowers i.e. the value of the default probabilities were not independent between borrowers. This affects the estimation of our standard error because when we set it equal to $$\frac{\sigma}{\sqrt{N}}$$ , we assume that the individual outcomes are independent. In absence of independence, our standard error goes up due to the additional covariance terms. This wouldn't affect the expected outcome but since our distribution would be much more spread out, the probability of 0 earnings would be relatively closer to the center of the distribution, resulting in higher probability loss for the bank.
